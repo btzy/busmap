@@ -39,14 +39,38 @@ $(document).ready(function(){
     }
     var rawBusServicesData={};
     var rawBusStopData=[];
-    var modBusStopCodes={};
-    var mergedGraph={};
-    // mergedGraph={"<mod bus stop code>":{adjStops:[{"<next mod bus stop code>":["<svc no>"]}],busList:{"<svc no>":{name:<display name>,stop_directions:[<dir no from adjStops>]}}}}
+    
+    var normalizedBusStopData;
+    var mergedBusStopData;
+    
+    var mergedBusStopMapping={};
+    
+    var routeGraph;
+    // routeGraph={"<mod bus stop code>":{adjStops:[{"<next mod bus stop code>":["<svc no>"]}],busList:{"<svc no>":{name:<display name>,stop_directions:[<bool, true if bus is travelling to that direction>]}}}}
     // note: stop_directions direction is the direction the bus will head to.
-    //direction=2 is a guess!
+    
     var dataInitialized=function(){
+        // rawBusServicesData and rawBusStopData should be initialized.
+        
+        // Convert the downloaded data to {<stopCode>:{x:number,y:number}}
+        normalizedBusStopData=normalizeStops(rawBusStopData);
+        
+        // Calculate the average direction so bus stops will be {<stopCode>:{x:number,y:number,direction:angle}}
+        // this function needs optimization.
+        calculateAverageDirection(normalizedBusStopData,rawBusServicesData);
+        
+        // Merge raw stops to combined stops, generating the mapping too:
+        mergedBusStopData=createMergeStops(normalizedBusStopData,mergedBusStopMapping);
+        
+        // Generate the route graph:
+        routeGraph=generateRouteGraph(normalizedBusStopData,rawBusServicesData,mergedBusStopMapping);
+        
+        
+        
+        
+        
         // parsing algorithm:
-        _forEachVal(rawBusStopData,function(stopData){
+        /*_forEachVal(rawBusStopData,function(stopData){
             modBusStopCodes[stopData.no]="FF";
         });
         // merge stops and populate stop list
@@ -57,9 +81,9 @@ $(document).ready(function(){
                 if(stopCode.substr(-1)==="1"&&modBusStopCodes.hasOwnProperty(stopCode.substr(0,4)+"9"))modBusStopCodes[stopCode.substr(0,4)+"9"]=stopCode;
                 else if(stopCode.substr(-1)==="9"&&modBusStopCodes.hasOwnProperty(stopCode.substr(0,4)+"1"))modBusStopCodes[stopCode.substr(0,4)+"1"]=stopCode;
             }
-        });
+        });*/
         // populate service data
-        _forEach(rawBusServicesData,function(svcNo,svcData){
+        /*_forEach(rawBusServicesData,function(svcNo,svcData){
             _forEachVal(svcData,function(svcDirData){
                 var prev_stop=null;
                 var prev_direction=null;
@@ -95,29 +119,34 @@ $(document).ready(function(){
                             }
                         });
                         mergedGraph[prev_stop].busList[svcNo].stop_directions
-                    }*/
+                    }
                     prev_stop=busStop;
                 });
             });
-        });
+        });*/
     };
     var _dataCounter=0;
     getData("bus-services.json",function(data){
         var __datact=0;
+        var g_data=data;
         for(var i=0;i<data.services.length;++i){
             (function(svc){
                 getData("bus-services/"+svc+".json",function(data){
                     updateStatus("Downloaded "+svc);
                     rawBusServicesData[svc]=data;
                     ++__datact;
-                    if(__datact==data.services.length){
+                    if(__datact==g_data.services.length){
                         ++_dataCounter;
                         if(_dataCounter==2){
-                            dataInitialized();
+                            var handler=function(){
+                                document.removeEventListener("click",handler,false);
+                                dataInitialized();
+                            }
+                            document.addEventListener("click",handler,false);
                         }
                     }
                 });
-            })(data.services[i].no);
+            })(g_data.services[i].no);
         }
     });
     getData("bus-stops.json",function(data){
@@ -126,5 +155,5 @@ $(document).ready(function(){
         if(_dataCounter==2){
             dataInitialized();
         }
-    }
+    });
 });
