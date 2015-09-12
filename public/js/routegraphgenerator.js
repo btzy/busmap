@@ -11,16 +11,16 @@ var getDirectionIndex=function(currDirectedDirection,refDirection){
 
 var drawRouteGraphEdge=function(routeGraph,svcNo,stop1Code,stop1DirIndex,stop2Code,stop2DirIndex){
     // stop1DirIndex = direction on stop 1 towards stop 2.
-    if(!routeGraph[stop1Code].adjStops[stop1DirIndex].hasOwnProperty(stop2Code)){
+    if(!routeGraph[stop1Code].adjStops[stop1DirIndex].hasOwnProperty(stop2Code+"&"+stop2DirIndex)){
         // there is no link from stop1 to stop2
-        routeGraph[stop1Code].adjStops[stop1DirIndex][stop2Code]=[];
+        routeGraph[stop1Code].adjStops[stop1DirIndex][stop2Code+"&"+stop2DirIndex]=[];
     }
-    routeGraph[stop1Code].adjStops[stop1DirIndex][stop2Code].push(svcNo);
-    if(routeGraph[stop2Code].adjStops[stop2DirIndex].hasOwnProperty(stop1Code)){
+    routeGraph[stop1Code].adjStops[stop1DirIndex][stop2Code+"&"+stop2DirIndex].push(svcNo);
+    if(!routeGraph[stop2Code].adjStops[stop2DirIndex].hasOwnProperty(stop1Code+"&"+stop1DirIndex)){
         // there is no link from stop2 to stop1
-        routeGraph[stop2Code].adjStops[stop2DirIndex][stop1Code]=[];
+        routeGraph[stop2Code].adjStops[stop2DirIndex][stop1Code+"&"+stop1DirIndex]=[];
     }
-    routeGraph[stop2Code].adjStops[stop2DirIndex][stop1Code].push(svcNo);
+    routeGraph[stop2Code].adjStops[stop2DirIndex][stop1Code+"&"+stop1DirIndex].push(svcNo);
 };
 
 var appendRouteGraphStop=function(routeGraph,svcNo,stopCode,stopDirIndex){
@@ -57,7 +57,7 @@ var generateRouteGraph=function(busStops,busServices,mergeMapping){
                 var direction_index=getDirectionIndex(dir.stopDirectedDirections[k],busStops[mergedStopCode].direction);
                 appendRouteGraphStop(routeGraph,busServicesKeys[i],mergedStopCode,direction_index);
                 if(k>0){
-                    drawRouteGraphEdge(routegraph,busServicesKeys[i],prev_bus_stop,prev_dir_index,mergedStopCode,1-direction_index);
+                    drawRouteGraphEdge(routeGraph,busServicesKeys[i],prev_bus_stop,prev_dir_index,mergedStopCode,1-direction_index);
                 }
                 prev_dir_index=direction_index;
                 prev_bus_stop=mergedStopCode;
@@ -67,7 +67,7 @@ var generateRouteGraph=function(busStops,busServices,mergeMapping){
     return routeGraph;
     
     
-    // returns {"<mod bus stop code>":{adjStops:[{"<next mod bus stop code>":["<svc no>"]}],busList:{"<svc no>":{name:<display name>,stopDirections:[<bool, true if bus is travelling to that direction>]}}}}
+    // routeGraph={"<mod bus stop code>":{adjStops:[{"<next mod bus stop code>&<dirindex>":["<svc no>"]}],busList:{"<svc no>":{name:<display name>,stopDirections:[<bool, true if bus is travelling to that direction>]}}}}
     // note: there will always be exactly 2 directions per bus stop.
     // note: stop_directions direction is the direction the bus will head to.
 };

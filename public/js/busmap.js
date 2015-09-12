@@ -1,7 +1,7 @@
 var data_url="https://busrouter-sg.s3-ap-southeast-1.amazonaws.com/v2/";
 $(document).ready(function(){
     var updateStatus=function(message){
-        $("body").text(message);
+        //$("body").text(message);
     };
     var getData=function(key,callback){
         var data=(localStorage)?(localStorage.getItem(key)):null;
@@ -46,7 +46,7 @@ $(document).ready(function(){
     var mergedBusStopMapping={};
     
     var routeGraph;
-    // routeGraph={"<mod bus stop code>":{adjStops:[{"<next mod bus stop code>":["<svc no>"]}],busList:{"<svc no>":{name:<display name>,stop_directions:[<bool, true if bus is travelling to that direction>]}}}}
+    // routeGraph={"<mod bus stop code>":{adjStops:[{"<next mod bus stop code>&<dirindex>":["<svc no>"]}],busList:{"<svc no>":{name:<display name>,stopDirections:[<bool, true if bus is travelling to that direction>]}}}}
     // note: stop_directions direction is the direction the bus will head to.
     
     var dataInitialized=function(){
@@ -63,8 +63,12 @@ $(document).ready(function(){
         mergedBusStopData=createMergeStops(normalizedBusStopData,mergedBusStopMapping);
         
         // Generate the route graph:
-        routeGraph=generateRouteGraph(normalizedBusStopData,rawBusServicesData,mergedBusStopMapping);
+        routeGraph=generateRouteGraph(mergedBusStopData,rawBusServicesData,mergedBusStopMapping);
         
+        
+        
+        //debugging visualization of route graph:
+        drawRouteGraph(routeGraph,mergedBusStopData);
         
         
         
