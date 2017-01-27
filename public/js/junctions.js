@@ -77,20 +77,158 @@ var splitJunctionGroups=function(junctionGroups,mergedBusStopData){
             }
         }
         if(ct==0){ // no candidates, just use first bus stop location
-            ttl_x=mergeBusStopData[junctionGroups[i][j].busStopCode].x;
-            ttl_y=mergeBusStopData[junctionGroups[i][j].busStopCode].y;
+            ttl_x=mergedBusStopData[junctionGroups[i][0].busStopCode].x;
+            ttl_y=mergedBusStopData[junctionGroups[i][0].busStopCode].y;
             ++ct;
         }
         ttl_x/=ct;
         ttl_y/=ct;
-        junctions.push({x:ttl_x,y:ttl_y,links:junctionGroups[i]}); // note: the stop-dir list is a reference to the old one.
+        junctions.push({x:ttl_x,y:ttl_y,links:junctionGroups[i],junctionGroupIndex:i}); // note: the stop-dir list is a reference to the old one.
     }
-    // returns [{x,y,links:[{busStopCode,directionIndex}]}]
+    junctions.sort(function(a,b){
+        if(a.junctionGroupIndex<b.junctionGroupIndex)return -1;
+        if(a.junctionGroupIndex>b.junctionGroupIndex)return 1;
+        return 0;
+    });
+    return junctions;
+    // returns [{x,y,links:[{busStopCode(string/int(adjJunctionIndex)),directionIndex}],junctionGroupIndex}]
 };
 
-var generateJunctionGraph=function(routeGraph,junctionData){
+var generateJunctionGraph=function(routeGraph,junctionData,junctionGroupData){
+    // junctionData should be sorted by junctionGroupIndex
+    // routeGraph={"<mod bus stop code>":{adjStops:[{"<next mod bus stop code>&<dirindex>":["<svc no>"]}],busList:{"<svc no>":{name:<display name>,stopDirections:[<bool, true if bus is travelling to that direction>]}}}}
+    var junctionGraph={junctions:new Array(junctionData.length),edges:[]};
+    var junctionGroup=[];
+    var stopDirToJunction={};
     
-    // returns {junctions:[<junction index>:{adjJunctions(sparse array):[<junction index>:<edge index>]}],edges:[<edge index>:{busList:[{svcNo:"<svc no>",name:"<display name>"}],busStopList:[{busStopCode:"<mod bus stop code>",stopDirections:{"<svc no>":[<bool, true if bus is travelling to that direction>]}}]}]};
+    
+    
+    var _doJunctionGroup=function(){
+        // build empty junctions:
+        for(var i=0;i<junctionGroup.length;++i){
+            junctionGraph.junctions[junctionGroup[i]]={adjJunctions:[]};
+        }
+        // draw edges within junction group:
+        for(var i=0;i<junctionGroup.length;++i){
+            for(var j=0;j<junctionData[junctionGroup[i]].links.length;++j){
+                if(typeof junctionData[junctionGroup[i]].links[j].busStopCode === "number"){
+                    if(junctionGroup[i]<junctionData[junctionGroup[i]].links[j].busStopCode){
+                        // only draw from smaller to bigger junction index
+                        _addEmptyEdge(junctionGroup[i],junctionData[junctionGroup[i]].links[j].busStopCode);
+                    }
+                }
+            }
+        }
+        // draw external edges:
+        for(var i=0;i<junctionGroup.length;++i){
+            for(var j=0;j<junctionData[junctionGroup[i]].links.length;++j){
+                if(typeof junctionData[junctionGroup[i]].links[j].busStopCode === "string"){ // is a real external bus stop
+                    // walk to the next junction:
+                    var edge={busList:[],busStopList:[]};
+                    var busList=routeGraph[junctionData[junctionGroup[i]].links[j].busStopCode].busList;
+                    var busKeys=Object.keys(busList);
+                    for(var k=0;k<busKeys.length;++k){
+                        edge.busList.push({svcNo:busKeys[k],name:busList[busKeys[k]].name});
+                    }
+                    var curr_stop=junctionData[junctionGroup[i]].links[j].busStopCode;
+                    var curr_dir=1-junctionData[junctionGroup[i]].links[j].directionIndex;
+                    while(true){
+                        var curr_busStop={busStopCode:curr_stop,stopDirections:{}};
+                        var curr_busKeys=Object.keys(routeGraph[curr_stop].busList);
+                        for(var k=0;k<curr_busKeys.length;++k){
+                            curr_busStop.stopDirections[curr_busKeys[k]]=[routeGraph[curr_stop].busList[curr_busKeys[k]].stopDirections[curr_dir],routeGraph[curr_stop].busList[curr_busKeys[k]].stopDirections[1-curr_dir]];
+                        }
+                        edge.busStopList.push(curr_busStop);
+                        if(stopDirToJunction.hasOwnProperty(curr_stop+"&"+curr_dir)){
+                            // next stop is a junction
+                            if(stopDirToJunction[curr_stop+"&"+curr_dir]>=junctionGroup[i]){ // link from small to larger junction
+                                _addEdge(junctionGroup[i],stopDirToJunction[curr_stop+"&"+curr_dir],edge);
+                            }
+                            break;
+                        }
+                        else{
+                            var _stopdirArr=Object.keys(routeGraph[curr_stop].adjStops[curr_dir])[0].split("&");
+                            curr_stop=_stopdirArr[0];
+                            curr_dir=parseInt(_stopdirArr[1]);
+                        }
+                    }
+                }
+            }
+        }
+        // draw busLinks and internal edges:
+        // TODO the below:
+        /*for(var i=0;i<junctionGroup.length;++i){
+            for(var j=0;j<junctionData[junctionGroup[i]].links.length;++j){
+                if(typeof junctionData[junctionGroup[i]].links[j].busStopCode === "string"){ // is a real external bus stop
+                    var busStopCode=junctionData[junctionGroup[i]].links[j].busStopCode;
+                    var dirIndex=junctionData[junctionGroup[i]].links[j].directionIndex;
+                    var targetsKeys=Object.keys(routeGraph[busStopCode].adjStops[dirIndex]);
+                    for(var k=0;k<targetsKeys.length;++k){
+                        var svcArr=routeGraph[busStopCode].adjStops[dirIndex][targetsKeys[k]];
+                        var targetStopDir=targetKeys[k];
+                        var visitedJunctions=[]; // sparse array
+                        // do a dfs to find the route to the end:
+                        _addRoutes(junctionGroup[i],svcArr,visitedJunctions,targetStopDir.split("&")[0],parseInt(targetStopDir.split("&")[1],10));
+                    }
+                }
+            }
+        }*/
+        
+    };
+    var _addEdge=function(j1,j2,edge){
+        var edgeIndex=junctionGraph.edges.length;
+        junctionGraph.junctions[j1].adjJunctions.push({junctionIndex:j2,edgeIndex:edgeIndex,busLinks:[]});
+        junctionGraph.junctions[j2].adjJunctions.push({junctionIndex:j1,edgeIndex:edgeIndex,busLinks:[]});
+        junctionGraph.edges.push(edge);
+    };
+    var _addEmptyEdge=function(j1,j2){
+        var edgeIndex=junctionGraph.edges.length;
+        junctionGraph.junctions[j1].adjJunctions.push({junctionIndex:j2,edgeIndex:edgeIndex,busLinks:[]});
+        junctionGraph.junctions[j2].adjJunctions.push({junctionIndex:j1,edgeIndex:edgeIndex,busLinks:[]});
+        junctionGraph.edges.push({busList:[],busStopList:[]});
+    };
+    var _addRoutes=function(currJunctionIndex,svcArr,visitedJunctions,targetStop,targetDir,prevJunctionIndex){
+        if(visitedJunctions[currJunctionIndex])return false;
+        visitedJunctions[currJunctionIndex]=true;
+        for(var i=0;i<junctionData[currJunctionIndex].links.length;++i){
+            // if it's a stop-dir:
+            if(typeof junctionData[currJunctionIndex].links[i].busStopCode === "string"){
+                if(junctionData[currJunctionIndex].links[i].busStopCode===targetStop&&junctionData[currJunctionIndex].links[i].directionIndex===targetDir){
+                    // reached the target!
+                    if(typeof prevJunctionIndex === "number"){
+                        // draw the link:
+                        //_drawBusLink(currJunctionIndex,
+                        // TODO.
+                    }
+                }
+            }
+        }
+    };
+    
+    
+    
+    // real start:
+    for(var i=0;i<junctionData.length;++i){
+        for(var j=0;j<junctionData[i].links.length;++j){
+            stopDirToJunction[junctionData[i].links[j].busStopCode+"&"+junctionData[i].links[j].directionIndex]=i;
+        }
+    }
+    for(var i=0;i<junctionData.length;++i){
+        junctionGraph.junctions[i]={adjJunctions:[]};
+    }
+    for(var i=0;i<junctionData.length;++i){
+        if(junctionGroup.length&&junctionGroup[0].junctionGroupIndex!==junctionData[i].junctionGroupIndex){
+            _doJunctionGroup();
+            junctionGroup=[];
+        }
+        junctionGroup.push(i);
+    }
+    if(junctionGroup.length)_doJunctionGroup();
+    junctionGroup=[];
+    
+    
+    
+    // returns {junctions:[<junction index>:{adjJunctions:[{junctionIndex:<junction index>,edgeIndex:<edge index>,busLinks:[<adjJunctionIndex>:["<svcNo>"]]}]}],edges:[<edge index>:{busList:[{svcNo:"<svc no>",name:"<display name>"}],busStopList:[{busStopCode:"<mod bus stop code>",stopDirections:{"<svc no>":[<bool, true if bus is travelling to that direction>]}}]}]};
     // busList: from left to right when looking from smaller junction ID to larger junction ID.
     // busStopList: from smaller junction ID to larger junction ID.
     // stopDirections: index 0: from smaller junction ID to larger junction ID, index 1: from larger junction ID to smaller junction ID

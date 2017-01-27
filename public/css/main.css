@@ -8,7 +8,7 @@ html, body{
     padding:0;
     overflow:hidden;
 }
-svg#busmap{
+#busmap-wrapper, #busmap{
     width:100%;
     height:100%;
 }

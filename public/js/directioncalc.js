@@ -31,7 +31,7 @@ var getCyclicMedian=function(arr,modulo){
 };
 
 var getDistance=function(point1,point2){
-    return Math.sqrt(point1*point1+point2*point2);
+    return Math.sqrt((point1.x-point2.x)*(point1.x-point2.x)+(point1.y-point2.y)*(point1.y-point2.y));
 };
 
 var getDirection=function(point1,point2){
@@ -41,6 +41,9 @@ var getDirection=function(point1,point2){
 
 var getDirectedDirection=function(point1,point2){
     // returns the directed direction from point1 to point2 [0,2*PI)
+    if(!point1||!point2){
+        point1=point1;
+    }
     return (Math.atan2(point2.y-point1.y,point2.x-point1.x)+2*Math.PI)%(2*Math.PI);
 }
 
@@ -67,6 +70,8 @@ var getClosestDirectedDirectionFromPolyline=function(pointCoords,polylineCoordsA
     // returns an angle in radians
     // O(#points)
     
+    // polylinePriorityIndices provides a hint for likely indices.
+    
     // this is an optimization
     var closestPointsArray=[],closestIndex=0;
     for(var i=0;i<polylinePriorityIndices.length;++i){
@@ -77,6 +82,7 @@ var getClosestDirectedDirectionFromPolyline=function(pointCoords,polylineCoordsA
             closestIndex=i;
         }
     }
+    var polylineClosestIndex=polylinePriorityIndices[closestIndex];
     // non-optimized version
     if(closestPointsArray.length==0||getDistance(closestPointsArray[closestIndex],pointCoords)>maxPriorityAllowableDistance){
         closestPointsArray=[];
@@ -89,15 +95,17 @@ var getClosestDirectedDirectionFromPolyline=function(pointCoords,polylineCoordsA
                 closestIndex=i;
             }
         }
+        polylineClosestIndex=closestIndex;
     }
     var directeddirection;
-    if(closestIndex==polylineCoordsArray.length-1||getDistance(closestPointsArray[closestIndex],pointCoords)+0.000000001<getDistance(closestPointsArray[closestIndex+1],pointCoords)){
-        // is not a corner
-        directeddirection=getDirectedDirection(polylineCoordsArray[closestIndex],polylineCoordsArray[closestIndex+1]);
+    
+    if(closestIndex==closestPointsArray.length-1||getDistance(closestPointsArray[closestIndex],pointCoords)+0.000000001<getDistance(closestPointsArray[closestIndex+1],pointCoords)){
+        // is not a corner. it could be an endpoint
+        directeddirection=getDirectedDirection(polylineCoordsArray[polylineClosestIndex],polylineCoordsArray[polylineClosestIndex+1]);
     }
     else{
         var direction=(getDirection(pointCoords,closestPointsArray[closestIndex])+Math.PI/2)%Math.PI;
-        var avgdirecteddirection=getCyclicMedian([getDirectedDirection(polylineCoordsArray[closestIndex],polylineCoordsArray[closestIndex+1]),getDirectedDirection(polylineCoordsArray[closestIndex+1],polylineCoordsArray[closestIndex+2])],2*Math.PI);
+        var avgdirecteddirection=getCyclicMedian([getDirectedDirection(polylineCoordsArray[polylineClosestIndex],polylineCoordsArray[polylineClosestIndex+1]),getDirectedDirection(polylineCoordsArray[polylineClosestIndex+1],polylineCoordsArray[polylineClosestIndex+2])],2*Math.PI);
         var distdir1=(direction-avgdirecteddirection+2*Math.PI)%(2*Math.PI);
         if(distdir1>Math.PI)distdir1=2*Math.PI-distdir1;
         var distdir2=(direction-avgdirecteddirection+3*Math.PI)%(2*Math.PI);
@@ -181,7 +189,7 @@ var calculateAverageDirection=function(busStops,busServices){
                     }
                 }
             }
-            // TODO: process nearest chunks first
+            // //
             for(var k=0;k<dir.stops.length;++k){
                 var chunk_x=Math.floor((busStops[dir.stops[k]].x-min_x)/shift);
                 var chunk_y=Math.floor((busStops[dir.stops[k]].y-min_y)/shift);
@@ -200,6 +208,7 @@ var calculateAverageDirection=function(busStops,busServices){
                         }
                     }
                 }
+                priority_indices.sort();
                 var closest_direction=getClosestDirectedDirectionFromPolyline(busStops[dir.stops[k]],route,priority_indices,shift);
                 busStopDirectionLists[dir.stops[k]].push(closest_direction%Math.PI);
                 dir.stopDirectedDirections[k]=closest_direction;
@@ -208,5 +217,94 @@ var calculateAverageDirection=function(busStops,busServices){
     }
     for(var i=0;i<busStopKeys.length;++i){
         busStops[busStopKeys[i]].direction=getCyclicMedian(busStopDirectionLists[busStopKeys[i]],Math.PI);
+    }
+};
+
+// helper function:
+
+
+var getBestLocationAndDirectedDirectionResolution=function(stopArray,routePolyline){
+    // this function will return an array of location and directed directions (length same as stopArray) describing the bus stop location and directed directions such that it is in the order in routePolyline.
+    // the algorithm does an optimized DP starting from the last stop to the first stop (walk backwards along the stops).
+    var routeIndicesByLocation=[];
+    var min_x=1000000000000,min_y=1000000000000,max_x=-1000000000000,max_y=-1000000000000;
+    for(var i=0;i<routePolyline.length;++i){
+        min_x=Math.min(min_x,routePolyline[i].x);
+        max_x=Math.max(max_x,routePolyline[i].x);
+        min_y=Math.min(min_y,routePolyline[i].y);
+        max_y=Math.max(max_y,routePolyline[i].y);
+    }
+    var shift_x=(max_x-min_x)/100000;
+    var shift_y=(max_y-min_y)/100000;
+    var prec=30;
+    min_x-=shift_x;
+    max_x+=shift_x;
+    min_y-=shift_y;
+    max_y+=shift_y;
+    var shift=Math.max(max_x-min_x,max_y-min_y)/prec;
+    for(var i=0;i<routePolyline.length-1;++i){
+        // insert points;
+        var min_px=Math.floor((routePolyline[i].x-min_x)/shift);
+        var min_py=Math.floor((routePolyline[i].y-min_y)/shift);
+        var max_px=Math.floor((routePolyline[i+1].x-min_x)/shift);
+        var max_py=Math.floor((routePolyline[i+1].y-min_y)/shift);
+        if(min_px>max_px){
+            var temp=max_px;
+            max_px=min_px;
+            min_px=temp;
+        }
+        if(min_py>max_py){
+            var temp=max_py;
+            max_py=min_py;
+            min_py=temp;
+        }
+        for(var l=min_px;l<=max_px;++l){
+            for(var m=min_py;m<=max_py;++m){
+                // add segment to indexed locations:
+                if(!routeIndicesByLocation[l]){
+                    routeIndicesByLocation[l]=[];
+                }
+                if(!routeIndicesByLocation[l][m]){
+                    routeIndicesByLocation[l][m]=[];
+                }
+                routeIndicesByLocation[l][m].push(i);
+                // routeIndicesByLocation[i][j] will contain list of line segments possibly in area(i,j)
+            }
+        }
+    }
+    var getPriorityIndices=function(stopIndex){
+        var chunk_x=Math.floor((stopArray[stopIndex].x-min_x)/shift);
+        var chunk_y=Math.floor((stopArray[stopIndex].y-min_y)/shift);
+        var priority_indices=[];
+        for(var l=chunk_x-1;l<=chunk_x+1;++l){
+            for(var m=chunk_y-1;m<=chunk_y+1;++m){
+                if(l>=0&&m>=0){
+                    if(routeIndicesByLocation[l]&&routeIndicesByLocation[l][m]){
+                        var priority_temp=routeIndicesByLocation[l][m];
+                        for(var n=0;n<priority_temp.length;++n){
+                            if(priority_indices.indexOf(priority_temp[n])===-1){
+                                priority_indices.push(priority_temp[n]);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        priority_indices.sort();
+        return priority_indices;
+    }
+    var dp_mindist=[]; // {minDist:number,currDist:number,pointData:{x,y,directedDirection},prevRouteIndex:integer} // [stopIndex,polylineIndex]
+    for(var i=0;i<stopArray.length;++i){
+        var priority_indices=getPriorityIndices(i);
+        var closest_points=[];
+        priority_indices.forEach(function(p_index){
+            var closest_point=getClosestPoint(stopArray[i],routePolyline[priority_indices[i]],routePolyline[priority_indices[i+1]]);
+            closest_point.directedDirection=getDirectedDirection(routePolyline[priority_indices[i]],routePolyline[priority_indices[i+1]]); // TODO: get better directed direction at corners.
+            var currDist=getDistance(stopArray[i],closest_point);
+            var minDist;
+            
+            var dp_obj={pointData:closest_point};
+        });
+        
     }
 };
